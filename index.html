@@ -733,34 +733,34 @@ changeChartSymbol("BTCUSDT");
 
 }
 
-async function scannerLoop(){
+async function scannerLoop() {
     while(true){
         try{
-            // 5m candle close का इंतजार करें
+        
             await waitForCandleClose();
 
-            // फिर scan शुरू करें
             await scan();
 
-        }catch(e){
-            console.log("SCAN ERROR:",e);
-        }
+            
+            await waitForCandleClose();
 
-        // अगली scan के लिए short delay (optional)
-        await new Promise(r=>setTimeout(r,3000));
+        } catch(e){
+            console.log("SCAN ERROR:", e);
+        }
     }
 }
 
+// ----------------- 5m Candle Close Wait Function -----------------
 async function waitForCandleClose() {
     const now = new Date();
     const ms = now.getSeconds() * 1000 + now.getMilliseconds();
     const remaining = 5 * 60 * 1000 - ms; // 5 मिनट candle interval
     if (remaining > 0) {
         console.log("Waiting for candle close:", remaining, "ms");
-        await new Promise(r => setTimeout(r, remaining + 500)); // 0.5s buffer
+        await new Promise(r => setTimeout(r, remaining + 1000)); // 1s buffer
     }
 }
-
+// ----------------- END -----------------
 async function init(){
 
 loadList();
