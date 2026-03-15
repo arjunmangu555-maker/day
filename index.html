@@ -285,50 +285,57 @@ localStorage.setItem("rvolSettings", JSON.stringify(settings));
 
 async function checkScannerLock(){
 
+try{
+
 const lockRef = db.ref("scannerLock");
 
-const result = await lockRef.transaction(current => {
+const snapshot = await lockRef.get();
 
-if(current === null){
-return true;
-}
+if(!snapshot.exists()){
 
-return;
-
-});
-
-if(result.committed){
+await lockRef.set(true);
 
 isMasterScanner = true;
 
-console.log("MASTER SCANNER");
-
 document.getElementById("updateText").innerText = "Master Scanner";
+
+console.log("MASTER SCANNER");
 
 }else{
 
-console.log("VIEWER MODE");
+isMasterScanner = false;
 
 document.getElementById("updateText").innerText = "Viewer Mode";
+
+console.log("VIEWER MODE");
+
+}
+
+}catch(e){
+
+console.log("LOCK ERROR",e);
+
+document.getElementById("updateText").innerText = "Lock Error";
 
 }
 
 }
 	
-document.getElementById("resetBtn").onclick=()=>{
+document.getElementById("resetBtn").onclick=async ()=>{
 
 if(confirm("Reset Scanner ? All saved data will be cleared.")){
 
 highRvolSymbols={}
 
-db.ref("scanner").remove();
-db.ref("scannerLock").remove();
+await db.ref("scanner").remove();
+await db.ref("scannerLock").remove();
 
 location.reload();
 
 }
 
 };
+
 async function fetchSymbols(){
 
 const res=await fetch("https://fapi.binance.com/fapi/v1/exchangeInfo");
