@@ -319,14 +319,16 @@ document.getElementById("resetBtn").onclick=()=>{
 
 if(confirm("Reset Scanner ? All saved data will be cleared.")){
 
+highRvolSymbols={}
+
 db.ref("scanner").remove();
 db.ref("scannerLock").remove();
+
 location.reload();
 
 }
 
 };
-
 async function fetchSymbols(){
 
 const res=await fetch("https://fapi.binance.com/fapi/v1/exchangeInfo");
@@ -401,8 +403,8 @@ async function scan(){
 
 document.getElementById("updateText").innerText="Scanning...";
 
-const batchSize=100;
-const delay=25000;
+const batchSize=50;
+const delay=30000;
 
 for(let i=0;i<symbols.length;i+=batchSize){
 
@@ -732,14 +734,13 @@ console.log("SCAN ERROR:",e);
 
 }
 
-await new Promise(r=>setTimeout(r,300000));
-
+await new Promise(r=>setTimeout(r,120000));
 }
 
 }
 async function init(){
 
-await loadList();
+loadList();
 
 await checkScannerLock();
 
