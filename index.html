@@ -421,10 +421,6 @@ if(item.r){
 
 if(!highRvolSymbols[item.s]){
 
-if(settings.sound){
-	
-}
-
 highRvolSymbols={
 [item.s]:Date.now(),
 ...highRvolSymbols
@@ -436,17 +432,12 @@ highRvolSymbols={
 
 }
 
+render();
+saveList();   // 👈 हर batch के बाद firebase update
+
 if(i+batchSize<symbols.length){
 await new Promise(r=>setTimeout(r,delay));
 }
-
-}
-
-render();
-saveList();
-
-document.getElementById("updateText").innerText=
-"Updated: "+new Date().toLocaleTimeString();
 
 }
 
@@ -795,14 +786,3 @@ db.ref("scannerLock").remove();
 
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
