@@ -435,12 +435,15 @@ highRvolSymbols={
 }
 
 render();
-saveList();   // 👈 हर batch के बाद firebase update
+saveList();
 
 if(i+batchSize<symbols.length){
 await new Promise(r=>setTimeout(r,delay));
 }
 
+}
+
+// ? scan() function close
 }
 
 let sortDirection = 1;
