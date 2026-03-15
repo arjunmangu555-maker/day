@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>RVOL Scanner</title>
+<script src="https://s3.tradingview.com/tv.js"></script>
+
+<!-- FIREBASE -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
+<style>
+body{margin:0;font-family:Arial;}
+.container{display:flex;height:100vh;}
+
+.left{
+width:12%;
+border-right:2px solid #008571;
+overflow:auto;
+}
+
+.right{width:88%;}
+
+table{
+width:100%;
+border-collapse:collapse;
+}
+
+thead{
+position:sticky;
+top:0;
+background:#008571;
+color:white;
+z-index:10;
+}
+
+th,td{
+padding:8px;
+border-bottom:1px solid #008571;
+font-size:12px;
+}
+
+tbody tr:hover{
+background:#FCE3E3;
+cursor:pointer;
+}
+
+.selected{background:#ffe08a !important;}
+
+.sectionHeader{
+background:#f0f0f0;
+font-weight:bold;
+text-align:left;
+}
+
+.dividerRow td{
+padding:0;
+height:8px;
+border-top:3px solid #008571;
+background:none;
+}
+
+#status{
+padding:6px;
+font-size:10px;
+background:#008571;
+color:white;
+display:flex;
+align-items:center;
+gap:5px;
+}
+
+#themeBtn,#settingsBtn{
+font-size:12px;
+padding:2px 6px;
+cursor:pointer;
+border:none;
+border-radius:3px;
+}
+
+#contextMenu{
+position:absolute;
+display:none;
+background:#f9fbfb;
+border:1px solid #008571;
+border-radius:6px;
+box-shadow:0 4px 10px rgba(0,0,0,0.2);
+font-size:14px;
+min-width:180px;
+overflow:hidden;
+z-index:1000;
+}
+
+#contextMenu div{
+padding:12px 16px;
+cursor:pointer;
+background:#D5E3C8;
+transition:background 0.2s;
+}
+
+#contextMenu div:not(:last-child){
+border-bottom:1px solid #d2e6e3;
+}
+
+#contextMenu div:hover{
+background:#e9f5f3;
+}
+
+#deleteOption{
+color:#d11a2a;
+font-weight:bold;
+}
+  
+
+#settingsPopup{
+position:absolute;
+display:none;
+background:white;
+border:1px solid #ccc;
+padding:8px;
+font-size:12px;
+z-index:2000;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<div class="left">
+
+<div id="status">
+<span id="updateText">Starting...</span>
+<button id="themeBtn" onclick="toggleTheme()">Theme</button>
+<button id="settingsBtn">?</button>
+</div>
+
+<table>
+<thead>
+<tr>
+<th onclick="sortList('symbol')">Symbol</th>
+<th onclick="sortList('time')">Date Time</th>
+</tr>
+</thead>
+<tbody id="body"></tbody>
+</table>
+
+</div>
+
+<div class="right">
+<div id="chart" style="height:100%;width:100%;"></div>
+</div>
+
+</div>
+
+<div id="contextMenu">
+<div id="openTVOption">Open in TradingView</div>
+<div id="copyOption">Copy Symbol</div>
+<div id="deleteOption">Delete</div>
+</div>
+
+<div id="settingsPopup">
+
+<label>
+<input type="checkbox" id="soundToggle">
+Sound Alert
+</label>
+
+<br><br>
+
+<button id="resetBtn">Reset Scanner</button>
+
+</div>
+
+<audio id="alertSound">
+<source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
+</audio>
+
+<script>
+
+/* FIREBASE INIT */
+
+const firebaseConfig = {
+apiKey: "AIzaSyBHZu7dAk4dZlSwrgjlUIm6ZF0Dzpbfk7w",
+authDomain: "day-high-break.firebaseapp.com",
+databaseURL: "https://day-high-break-default-rtdb.asia-southeast1.firebasedatabase.app",
+projectId: "day-high-break",
+storageBucket: "day-high-break.firebasestorage.app",
+messagingSenderId: "486241098601",
+appId: "1:486241098601:web:5379f93f6e72b448287bf8",
+measurementId: "G-8BWRWGFEZ4"
+};
+
+firebase.initializeApp(firebaseConfig);
+
+const db = firebase.database();
+
+/* ORIGINAL CODE */
+
+let symbols=[];
+let highRvolSymbols={};
+let widget=null;
+let selectedSymbol=null;
+let selectedIndex = -1;
+let currentTheme="light";
+let contextSymbol=null;
+let isMasterScanner=false;
+let wakeLock=null;
+
+let settings={ sound:true };
+
+async function enableWakeLock(){
+
+try{
+
+wakeLock = await navigator.wakeLock.request('screen');
+
+console.log("Wake Lock Active");
+
+wakeLock.addEventListener("release", () => {
+
+console.log("Wake Lock released");
+
+if(isMasterScanner){
+enableWakeLock();
+}
+
+});
+
+}catch(err){
+
+console.log("Wake Lock Failed", err);
+
+}
+
+}
+function saveList(){
+db.ref("scanner").set(highRvolSymbols);
+}
+
+async function loadList(){
+
+let firstLoad = true;
+
+db.ref("scanner").on("value",(snapshot)=>{
+
+let newData = snapshot.val() || {};
+
+if(!firstLoad){
+
+// detect new symbols
+for(let s in newData){
+
+if(!highRvolSymbols[s]){
+
+if(settings.sound && !isMasterScanner){
+const sound=document.getElementById("alertSound");
+sound.currentTime=0;
+sound.play();
+}
+
+}
+
+}
+
+}
+
+highRvolSymbols = newData;
+
+render();
+
+firstLoad = false;
+
+});
+
+const s = localStorage.getItem("rvolSettings");
+if(s) settings = JSON.parse(s);
+
+}
+
+function saveSettings(){
+localStorage.setItem("rvolSettings", JSON.stringify(settings));
+}
+
+async function checkScannerLock(){
+
+const lockRef = db.ref("scannerLock");
+
+const result = await lockRef.transaction(current => {
+
+if(current === null){
+return true;
+}
+
+return;
+
+});
+
+if(result.committed){
+
+isMasterScanner = true;
+
+console.log("MASTER SCANNER");
+
+document.getElementById("updateText").innerText = "Master Scanner";
+
+}else{
+
+console.log("VIEWER MODE");
+
+document.getElementById("updateText").innerText = "Viewer Mode";
+
+}
+
+}
+	
+document.getElementById("resetBtn").onclick=()=>{
+
+if(confirm("Reset Scanner ? All saved data will be cleared.")){
+
+db.ref("scanner").remove();
+db.ref("scannerLock").remove();
+location.reload();
+
+}
+
+};
+
+async function fetchSymbols(){
+
+const res=await fetch("https://fapi.binance.com/fapi/v1/exchangeInfo");
+const data=await res.json();
+
+symbols=data.symbols
+.filter(s=>
+s.contractType==="PERPETUAL" &&
+s.quoteAsset==="USDT" &&
+s.status==="TRADING"
+)
+.map(s=>s.symbol)
+
+}
+
+async function fetchWithTimeout(url, timeout=10000){
+
+return Promise.race([
+
+fetch(url),
+
+new Promise((_,reject)=>
+setTimeout(()=>reject(new Error("timeout")),timeout)
+)
+
+]);
+
+}
+
+async function getRVOLData(symbol){
+try{
+
+const res=await fetchWithTimeout(
+`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=5m&limit=202`,10000);
+
+const data=await res.json();
+
+if(!Array.isArray(data)) return null;
+if(data.length<202) return null;
+
+let vols=data.slice(0,200).map(x=>parseFloat(x[5]));
+
+let avg=vols.reduce((a,b)=>a+b,0)/200;
+
+let conditionCandle=data[200];
+
+let close=parseFloat(conditionCandle[4]);
+let volume=parseFloat(conditionCandle[5]);
+
+// GET PREVIOUS DAY HIGH
+const dayRes=await fetchWithTimeout(
+`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=1d&limit=2`,10000);
+
+const dayData=await dayRes.json();
+
+if(!Array.isArray(dayData)) return null;
+
+let prevDayHigh=parseFloat(dayData[0][2]);
+
+if(close>prevDayHigh && volume>=avg*25){
+return true;
+}
+
+return null;
+
+}catch{
+return null;
+}
+}
+
+async function scan(){
+
+document.getElementById("updateText").innerText="Scanning...";
+
+const batchSize=100;
+const delay=25000;
+
+for(let i=0;i<symbols.length;i+=batchSize){
+
+document.getElementById("updateText").innerText =
+"Scanning: " + i + " / " + symbols.length;
+
+let batch=symbols.slice(i,i+batchSize);
+
+let promises=batch.map(s=>getRVOLData(s).then(r=>({s,r})));
+
+let results=await Promise.all(promises);
+
+for(let item of results){
+
+if(item.r){
+
+if(!highRvolSymbols[item.s]){
+
+if(settings.sound){
+	
+}
+
+highRvolSymbols={
+[item.s]:Date.now(),
+...highRvolSymbols
+};
+
+}
+
+}
+
+}
+
+if(i+batchSize<symbols.length){
+await new Promise(r=>setTimeout(r,delay));
+}
+
+}
+
+render();
+saveList();
+
+document.getElementById("updateText").innerText=
+"Updated: "+new Date().toLocaleTimeString();
+
+}
+
+let sortDirection = 1;
+
+function sortList(type){
+
+let entries = Object.entries(highRvolSymbols);
+
+if(type==="symbol"){
+entries.sort((a,b)=>a[0].localeCompare(b[0]) * sortDirection);
+}
+
+if(type==="time"){
+entries.sort((a,b)=>(a[1]-b[1]) * sortDirection);
+}
+
+sortDirection *= -1;
+
+highRvolSymbols = Object.fromEntries(entries);
+
+render();
+
+}
+
+function render(){
+
+const tbody=document.getElementById("body");
+tbody.innerHTML="";
+
+let entries = Object.entries(highRvolSymbols);
+
+// newest first (latest date top)
+entries.sort((a,b)=> b[1] - a[1]);
+
+entries.forEach(([s])=>{
+createRow(s);
+});
+
+}
+
+function formatDate(ts){
+
+let d=new Date(ts);
+
+let day=String(d.getDate()).padStart(2,"0");
+let month=String(d.getMonth()+1).padStart(2,"0");
+let year=String(d.getFullYear()).slice(-2);
+
+let hour=String(d.getHours()).padStart(2,"0");
+let min=String(d.getMinutes()).padStart(2,"0");
+
+return `${day}/${month}/${year} ${hour}:${min}`;
+
+}
+
+function createRow(s){
+
+let row=document.createElement("tr");
+
+if(selectedSymbol===s)
+row.classList.add("selected");
+
+row.innerHTML=`
+<td>${s}</td>
+<td>${formatDate(highRvolSymbols[s])}</td>
+`;
+
+row.onclick=()=>{
+selectedSymbol=s;
+changeChartSymbol(s);
+render();
+};
+
+row.oncontextmenu=(e)=>{
+e.preventDefault();
+contextSymbol=s;
+
+const menu=document.getElementById("contextMenu");
+
+menu.style.display="block";
+menu.style.left=e.pageX+"px";
+menu.style.top=e.pageY+"px";
+};
+
+document.getElementById("body").appendChild(row);
+
+}
+
+document.addEventListener("keydown",(e)=>{
+
+let keys = Object.keys(highRvolSymbols);
+
+if(e.key==="ArrowDown"){
+
+selectedIndex++;
+
+if(selectedIndex >= keys.length)
+selectedIndex = keys.length-1;
+
+selectedSymbol = keys[selectedIndex];
+changeChartSymbol(selectedSymbol);
+render();
+
+}
+
+if(e.key==="ArrowUp"){
+
+selectedIndex--;
+
+if(selectedIndex < 0)
+selectedIndex = 0;
+
+selectedSymbol = keys[selectedIndex];
+changeChartSymbol(selectedSymbol);
+render();
+
+}
+
+});
+
+document.getElementById("openTVOption").onclick=()=>{
+
+if(contextSymbol){
+
+const url="https://in.tradingview.com/chart/?symbol=BINANCE:"+contextSymbol+".P";
+
+window.open(url,"_blank");
+
+}
+
+hideMenu();
+
+};
+
+document.getElementById("copyOption").onclick=()=>{
+
+if(contextSymbol){
+
+navigator.clipboard.writeText(contextSymbol);
+
+}
+
+hideMenu();
+
+};
+
+document.getElementById("deleteOption").onclick=()=>{
+
+if(contextSymbol){
+
+if(confirm("Delete "+contextSymbol+" ?")){
+
+delete highRvolSymbols[contextSymbol];
+
+saveList();
+
+render();
+
+}
+
+}
+
+hideMenu();
+
+};
+
+function hideMenu(){
+
+document.getElementById("contextMenu").style.display="none";
+
+}
+
+document.addEventListener("click",hideMenu);
+
+document.getElementById("settingsBtn").onclick=(e)=>{
+
+const pop=document.getElementById("settingsPopup");
+
+pop.style.display="block";
+pop.style.left=e.pageX+"px";
+pop.style.top=e.pageY+"px";
+
+};
+
+document.getElementById("soundToggle").onchange=(e)=>{
+
+settings.sound=e.target.checked;
+
+saveSettings();
+
+};
+
+document.addEventListener("click",(e)=>{
+
+if(!e.target.closest("#settingsBtn"))
+document.getElementById("settingsPopup").style.display="none";
+
+});
+
+function initChart(){
+
+widget=new TradingView.widget({
+container_id:"chart",
+symbol:"BINANCE:BTCUSDT.P",
+interval:"5",
+autosize:true,
+theme:currentTheme,
+style:"1",
+locale:"en",
+timezone:"Asia/Kolkata",
+toolbar_bg:"#f1f3f6",
+enable_publishing:false,
+save_image:true,
+
+allow_symbol_change:true,
+hide_side_toolbar:false,
+withdateranges:false,
+details:false,
+hotlist:false,
+calendar:false,
+
+studies:["Volume@tv-basicstudies"],
+studies_overrides:{
+"volume.volume.transparency":0
+}
+
+});
+
+}
+
+function changeChartSymbol(symbol){
+
+if(widget){
+widget.remove();
+}
+
+document.getElementById("chart").innerHTML="";
+
+widget=new TradingView.widget({
+
+container_id:"chart",
+symbol:"BINANCE:"+symbol+".P",
+interval:"5",
+autosize:true,
+theme:currentTheme,
+style:"1",
+locale:"en",
+timezone:"Asia/Kolkata",
+toolbar_bg:"#f1f3f6",
+enable_publishing:false,
+save_image:true,
+
+allow_symbol_change:true,
+hide_side_toolbar:false,
+withdateranges:false,
+details:false,
+hotlist:false,
+calendar:false,
+
+studies:["Volume@tv-basicstudies"],
+studies_overrides:{
+"volume.volume.transparency":0
+}
+
+});
+
+}
+
+function toggleTheme(){
+
+currentTheme=currentTheme==="light"?"dark":"light";
+
+if(selectedSymbol)
+changeChartSymbol(selectedSymbol);
+else
+changeChartSymbol("BTCUSDT");
+
+}
+
+async function scannerLoop(){
+
+while(true){
+
+try{
+
+await scan();
+
+}catch(e){
+
+console.log("SCAN ERROR:",e);
+
+}
+
+await new Promise(r=>setTimeout(r,300000));
+
+}
+
+}
+async function init(){
+
+await loadList();
+
+await checkScannerLock();
+
+document.getElementById("soundToggle").checked=settings.sound;
+
+render();
+
+await fetchSymbols();
+
+initChart();
+
+if(isMasterScanner){
+
+enableWakeLock();
+
+scannerLoop();
+
+}
+
+}
+
+init();
+
+/* TAB ACTIVE KEEP HACK */
+
+setInterval(()=>{
+
+console.log("Scanner Alive", new Date().toLocaleTimeString());
+
+},60000);
+
+window.addEventListener("beforeunload",()=>{
+
+if(isMasterScanner){
+
+db.ref("scannerLock").remove();
+
+}
+
+});
+
+
+</script>
+
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
