@@ -411,7 +411,7 @@ async function scan(){
 document.getElementById("updateText").innerText="Scanning...";
 
 const batchSize=50;
-const delay=20000;
+const delay=10000;
 
 for(let i=0;i<symbols.length;i+=batchSize){
 
@@ -734,23 +734,33 @@ changeChartSymbol("BTCUSDT");
 }
 
 async function scannerLoop(){
+    while(true){
+        try{
+            // 5m candle close का इंतजार करें
+            await waitForCandleClose();
 
-while(true){
+            // फिर scan शुरू करें
+            await scan();
 
-try{
+        }catch(e){
+            console.log("SCAN ERROR:",e);
+        }
 
-await scan();
-
-}catch(e){
-
-console.log("SCAN ERROR:",e);
-
+        // अगली scan के लिए short delay (optional)
+        await new Promise(r=>setTimeout(r,3000));
+    }
 }
 
-await new Promise(r=>setTimeout(r,30000));
+async function waitForCandleClose() {
+    const now = new Date();
+    const ms = now.getSeconds() * 1000 + now.getMilliseconds();
+    const remaining = 5 * 60 * 1000 - ms; // 5 मिनट candle interval
+    if (remaining > 0) {
+        console.log("Waiting for candle close:", remaining, "ms");
+        await new Promise(r => setTimeout(r, remaining + 500)); // 0.5s buffer
+    }
 }
 
-}
 async function init(){
 
 loadList();
