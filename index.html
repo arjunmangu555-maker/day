@@ -736,10 +736,12 @@ changeChartSymbol("BTCUSDT");
 async function scannerLoop() {
     while(true){
         try{
-            await waitForCandleClose();  // wait till current candle closes
-            await scan();                // scan immediately after candle close
+            await waitForCandleClose();
+            await scan();
         } catch(e){
             console.log("SCAN ERROR:", e);
+        } finally {
+            await waitForCandleClose();
         }
     }
 }
@@ -748,21 +750,16 @@ async function scannerLoop() {
 
 async function waitForCandleClose() {
     const now = new Date();
-    const minutes = now.getMinutes();
-    const seconds = now.getSeconds();
-    const ms = now.getMilliseconds();
+    const msUntilNextCandle = (5 - (now.getMinutes() % 5)) * 60 * 1000  // remaining minutes
+                              - now.getSeconds() * 1000
+                              - now.getMilliseconds();
 
-    // Next 5-minute mark
-    const next5 = Math.ceil((minutes + seconds/60) / 5) * 5;
-
-    const remainingMinutes = next5 - minutes - seconds/60;
-    const remainingMs = remainingMinutes*60*1000 - ms;
-
-    if (remainingMs > 0) {
-        console.log("Waiting for candle close:", remainingMs, "ms");
-        await new Promise(r => setTimeout(r, remainingMs + 1000)); // 1s buffer
+    if (msUntilNextCandle > 0) {
+        console.log("Waiting for candle close:", msUntilNextCandle, "ms");
+        await new Promise(r => setTimeout(r, msUntilNextCandle + 500)); // small 0.5s buffer
     }
 }
+
 
 // ----------------- END -----------------
 async function init(){
