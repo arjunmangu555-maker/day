@@ -383,6 +383,7 @@ let avg=vols.reduce((a,b)=>a+b,0)/200;
 let conditionCandle=data[200];
 
 let close=parseFloat(conditionCandle[4]);
+let low=parseFloat(conditionCandle[3]);
 let volume=parseFloat(conditionCandle[5]);
 
 // GET PREVIOUS DAY HIGH
@@ -395,7 +396,11 @@ if(!Array.isArray(dayData)) return null;
 
 let prevDayHigh=parseFloat(dayData[0][2]);
 
-if(close>prevDayHigh && volume>=avg*25){
+if(
+close > prevDayHigh &&
+low <= prevDayHigh &&
+volume >= avg * 15
+){
 return true;
 }
 
