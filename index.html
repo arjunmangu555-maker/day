@@ -10,20 +10,28 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 
 <style>
-body{margin:0;font-family:Arial;}
+body{
+margin:0;
+font-family:Arial;
+overflow:hidden;
+}
 .container{display:flex;height:100vh;}
 
 .left{
 width:12%;
 border-right:2px solid #008571;
-overflow:auto;
+display:flex;
+flex-direction:column;
 }
 
-.right{width:88%;}
+.right{
+width:88%;
+}
 
 table{
 width:100%;
 border-collapse:collapse;
+margin:0;
 }
 
 thead{
@@ -76,6 +84,14 @@ padding:2px 6px;
 cursor:pointer;
 border:none;
 border-radius:3px;
+}
+
+#tfSelect{
+font-size:12px;
+padding:2px 4px;
+border-radius:3px;
+border:none;
+cursor:pointer;
 }
 
 #contextMenu{
@@ -132,6 +148,21 @@ z-index:2000;
 
 <div id="status">
 <span id="updateText">Starting...</span>
+
+<select id="tfSelect">
+<option value="1">1m</option>
+<option value="3">3m</option>
+<option value="5">5m</option>
+<option value="15">15m</option>
+<option value="30">30m</option>
+<option value="60">1h</option>
+<option value="120">2h</option>
+<option value="240">4h</option>
+<option value="360">6h</option>
+<option value="720">12h</option>
+<option value="D">1d</option>
+</select>
+
 <button id="themeBtn" onclick="toggleTheme()">Theme</button>
 <button id="settingsBtn">?</button>
 </div>
@@ -204,6 +235,7 @@ let widget=null;
 let selectedSymbol=null;
 let selectedIndex = -1;
 let currentTheme="light";
+let chartInterval = localStorage.getItem("chart_tf") || "15";
 let contextSymbol=null;
 let isMasterScanner=false;
 let wakeLock=null;
@@ -369,24 +401,37 @@ async function getRVOLData(symbol){
 try{
 
 const res=await fetchWithTimeout(
-`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=5m&limit=202`,10000);
+`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=15m&limit=120`,10000);
 
 const data=await res.json();
 
 if(!Array.isArray(data)) return null;
-if(data.length<202) return null;
+if(data.length<110) return null;
 
-let vols=data.slice(0,200).map(x=>parseFloat(x[5]));
+// Ignore live candle
+let candle1 = data[data.length - 2]; // last closed
+let candle2 = data[data.length - 3]; // second last
 
-let avg=vols.reduce((a,b)=>a+b,0)/200;
+// Extract values
+let c1Close = parseFloat(candle1[4]);
+let c1High  = parseFloat(candle1[2]);
+let c1Volume= parseFloat(candle1[5]);
 
-let conditionCandle=data[200];
+let c2Close = parseFloat(candle2[4]);
+let c2High  = parseFloat(candle2[2]);
+let c2Volume= parseFloat(candle2[5]);
 
-let close=parseFloat(conditionCandle[4]);
-let low=parseFloat(conditionCandle[3]);
-let volume=parseFloat(conditionCandle[5]);
+// Last 100 candles (excluding last 3 candles)
+let last100 = data.slice(data.length - 103, data.length - 3);
 
-// GET PREVIOUS DAY HIGH
+if(last100.length < 100) return null;
+
+let highestVolume = Math.max(
+  ...last100.map(x => parseFloat(x[5]))
+);
+
+
+// GET PREVIOUS DAY LOW
 const dayRes=await fetchWithTimeout(
 `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=1d&limit=2`,10000);
 
@@ -394,12 +439,22 @@ const dayData=await dayRes.json();
 
 if(!Array.isArray(dayData)) return null;
 
-let prevDayHigh=parseFloat(dayData[0][2]);
+let prevDayLow=parseFloat(dayData[0][3]);
 
+// Candle1 full condition
 if(
-close > prevDayHigh &&
-low <= prevDayHigh &&
-volume >= avg * 15
+c1Close < prevDayLow &&
+c1High > prevDayLow &&
+c1Volume > highestVolume
+){
+return true;
+}
+
+// Candle2 breakout + next candle (candle1) volume
+if(
+c2Close < prevDayLow &&
+c2High > prevDayLow &&
+c1Volume > highestVolume
 ){
 return true;
 }
@@ -633,6 +688,20 @@ document.getElementById("contextMenu").style.display="none";
 
 document.addEventListener("click",hideMenu);
 
+document.getElementById("tfSelect").onchange=(e)=>{
+
+chartInterval = e.target.value;
+localStorage.setItem("chart_tf", chartInterval);
+
+// chart refresh
+if(selectedSymbol){
+changeChartSymbol(selectedSymbol);
+}else{
+changeChartSymbol("BTCUSDT");
+}
+
+};
+
 document.getElementById("settingsBtn").onclick=(e)=>{
 
 const pop=document.getElementById("settingsPopup");
@@ -663,7 +732,7 @@ function initChart(){
 widget=new TradingView.widget({
 container_id:"chart",
 symbol:"BINANCE:BTCUSDT.P",
-interval:"5",
+interval:chartInterval,
 autosize:true,
 theme:currentTheme,
 style:"1",
@@ -701,7 +770,7 @@ widget=new TradingView.widget({
 
 container_id:"chart",
 symbol:"BINANCE:"+symbol+".P",
-interval:"5",
+interval:chartInterval,
 autosize:true,
 theme:currentTheme,
 style:"1",
@@ -740,31 +809,28 @@ changeChartSymbol("BTCUSDT");
 
 async function scannerLoop() {
     while(true){
-        try{
-            await waitForCandleClose();
-            await scan();
-        } catch(e){
-            console.log("SCAN ERROR:", e);
-        } finally {
-            await waitForCandleClose();
-        }
+    try{
+        await waitForCandleClose();
+        await scan();
+    } catch(e){
+        console.log("SCAN ERROR:", e);
     }
 }
+}
 
-// ----------------- 5m Candle Close Wait Function -----------------
+// ----------------- 15m Candle Close Wait Function -----------------
 
 async function waitForCandleClose() {
     const now = new Date();
-    const msUntilNextCandle = (5 - (now.getMinutes() % 5)) * 60 * 1000  // remaining minutes
+    const msUntilNextCandle = (15 - (now.getMinutes() % 15)) * 60 * 1000
                               - now.getSeconds() * 1000
                               - now.getMilliseconds();
 
     if (msUntilNextCandle > 0) {
-        console.log("Waiting for candle close:", msUntilNextCandle, "ms");
-        await new Promise(r => setTimeout(r, msUntilNextCandle + 500)); // small 0.5s buffer
+        console.log("Waiting for 15m candle close:", msUntilNextCandle);
+        await new Promise(r => setTimeout(r, msUntilNextCandle + 500));
     }
 }
-
 
 // ----------------- END -----------------
 async function init(){
@@ -780,6 +846,7 @@ render();
 await fetchSymbols();
 
 initChart();
+document.getElementById("tfSelect").value = chartInterval;
 
 if(isMasterScanner){
 
