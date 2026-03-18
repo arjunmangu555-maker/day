@@ -582,6 +582,13 @@ row.innerHTML=`
 `;
 
 row.onclick=()=>{
+
+let keys = Object.entries(highRvolSymbols)
+.sort((a,b)=> b[1] - a[1])
+.map(x => x[0]);
+
+selectedIndex = keys.indexOf(s);
+
 selectedSymbol=s;
 changeChartSymbol(s);
 render();
@@ -604,7 +611,9 @@ document.getElementById("body").appendChild(row);
 
 document.addEventListener("keydown",(e)=>{
 
-let keys = Object.keys(highRvolSymbols);
+let keys = Object.entries(highRvolSymbols)
+.sort((a,b)=> b[1] - a[1])
+.map(x => x[0]);
 
 if(e.key==="ArrowDown"){
 
