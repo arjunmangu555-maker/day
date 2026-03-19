@@ -429,7 +429,10 @@ if(last100.length < 100) return null;
 let highestVolume = Math.max(
   ...last100.map(x => parseFloat(x[5]))
 );
-
+	
+let lowestLow = Math.min(
+  ...last100.map(x => parseFloat(x[3]))
+);
 
 // GET PREVIOUS DAY LOW
 const dayRes=await fetchWithTimeout(
@@ -445,7 +448,10 @@ let prevDayLow=parseFloat(dayData[0][3]);
 if(
 c1Close < prevDayLow &&
 c1High > prevDayLow &&
-c1Volume > highestVolume
+c1Volume > highestVolume &&
+(
+c1Close < lowestLow || c2Close < lowestLow
+)
 ){
 return true;
 }
@@ -454,7 +460,10 @@ return true;
 if(
 c2Close < prevDayLow &&
 c2High > prevDayLow &&
-c1Volume > highestVolume
+c1Volume > highestVolume &&
+(
+c1Close < lowestLow || c2Close < lowestLow
+)
 ){
 return true;
 }
